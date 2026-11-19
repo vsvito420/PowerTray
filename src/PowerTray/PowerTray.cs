@@ -16,7 +16,7 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 
 [assembly: AssemblyTitle("PowerTray")]
-[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
 
 namespace PowerTray
 {
@@ -217,8 +217,8 @@ namespace PowerTray
                 g.Demands.Clear();
                 var ctl = FanCfg.Controls.FirstOrDefault(c => string.Equals(c.NickName, g.NickName, StringComparison.OrdinalIgnoreCase));
                 if (ctl != null && ctl.Enabled) FanCfg.Leaves(ctl.CurveName, id => SensorValue(id, smp), g.Demands);
-                smp.Fan[g.Pos] = g.Percent;
-                foreach (var d in g.Demands) smp.Demand[g.Pos + "/" + d.Key.Name] = d.Value;
+                smp.Fan[g.Id] = g.Percent;
+                foreach (var d in g.Demands) smp.Demand[g.Id + "/" + d.Key.Name] = d.Value;
             }
         }
 

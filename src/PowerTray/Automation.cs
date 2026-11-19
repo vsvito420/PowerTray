@@ -22,7 +22,7 @@ namespace PowerTray
         public DateTime T;
         public float? Cpu, Gpu, Load, CpuTemp, GpuTemp;
         public int Profile;
-        public Dictionary<FanPos, float?> Fan = new Dictionary<FanPos, float?>();
+        public Dictionary<string, float?> Fan = new Dictionary<string, float?>();
         public Dictionary<string, float?> Demand = new Dictionary<string, float?>();   // "Pos/Kurve" -> %
     }
 

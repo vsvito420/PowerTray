@@ -18,7 +18,7 @@ UI is German or English depending on your Windows language.*
   die Automatik-Regeln 1-2-3, pro Lüftergruppe die Überlagerung aller FanControl-Kurven (welche gerade bestimmt) und
   Messergebnisse aus der Optimier-Session. Neu gezeichnet nur alle 2 s und nur, wenn sichtbar.
 - **Spiel beenden:** hängt ein Steam-Spiel, beendet ein Knopf im Dashboard bzw. Tray-Menü alle Prozesse aus `steamapps\common`.
-- **Optimier-Session** (`tools\Measure-Cooling.ps1`): misst, wie viel jede Lüfterstufe wirklich bringt.
+- **Beliebige Gehäuse-Layouts** inkl. AIO; Werkzeuge zum Erkennen der Lüfter, Messen und Erzeugen der Profile (für KI-Agenten gebaut).
 - Profile aus Energieplan + [FanControl](https://getfancontrol.com)-Konfiguration, beliebig viele (bis 9)
 - Mausrad über dem Icon, Klick öffnet das Menü; das Icon zeigt das aktive Profil als Balken
 - Wird der Plan woanders gewechselt (Windows-Einstellungen, Spiel-Launcher), zieht PowerTray die Lüfterkurve nach
@@ -73,20 +73,30 @@ SteamIgnorieren=431960 ; Steam-Apps, die kein Spiel sind (Wallpaper Engine)
 ```
 
 ```ini
-[Gehaeuse]            ; wo sitzt welcher Lüfter (FanControl-NickName|Anzahl)
-CPU=Fan #2 CPU
-Unten=Fan #4 UNTEN|3
-Seite=Fan #6 Side|3
-Hinten=Fan #3 BACK|1
-Oben=Fan #7 TOP|3
-GPU=Control 1 - AMD Radeon RX 7900 XTX
+[Gehaeuse]            ; LuefterN=Position|FanControl-NickName|Anzahl|rein/raus|Radiator
+Luefter1=CPU|Fan #2 CPU|1
+Luefter2=Vorne|Fan #6|3|rein
+Luefter3=Oben|Fan #7|3|raus|Radiator
+Luefter4=Hinten|Fan #3|1|raus
+Luefter5=GPU|Control 1 - AMD Radeon RX 7900 XTX|1
 ```
 
 Plugin: `FanControl.WattSensors.ini` im FanControl-Plugin-Ordner (`CpuMaxWatt`, `GpuMaxWatt`, `SmoothingSeconds`,
 `GpuPowerSensorIndex`). Details in [AGENTS.md](AGENTS.md#3-plugin-anpassen).
 
-Beispiel-Setups (i9-9900K + RX 7900 XTX): [nach Temperatur](docs/beispiel-setup-temperatur.md),
-[nach Watt](docs/beispiel-setup-watt.md).
+Jedes Gehäuse-Layout geht: Front, Top, Boden, Seite, Rückseite, AIO-Radiatoren, beliebige Richtungen und mehrere Gruppen
+pro Position. Beispiele und der komplette Ablauf stehen in [AGENTS.md](AGENTS.md#5-gehäuse-layout-erfassen).
+
+## Werkzeuge (`tools\`)
+
+| Skript | Zweck |
+|---|---|
+| `Detect-Fans.ps1` | findet belegte Lüfteranschlüsse; `-Only <Name>` dreht einen hoch, um ihn im Gehäuse zu finden |
+| `Make-FanProfiles.ps1` | erzeugt Leise/Ausgewogen/Leistung/Turbo aus Layout + Sensoren (mit Backup, `-WhatIf` zum Ansehen) |
+| `Measure-Cooling.ps1` | misst unter CPU-Last, wie viel CPU- und Gehäuselüfter wirklich bringen |
+| `Test-Profile.ps1` | prüft ein Profil unter Last |
+
+Alle brauchen das WattSensors-Plugin mit `LiveDaten=1` und stellen am Ende das vorherige Profil wieder her.
 
 ## Selbst bauen
 

@@ -72,45 +72,82 @@ Höchstleistung, ggf. Ultimative Leistung). Prüfe die Datei:
   `powercfg /setacvalueindex <GUID> SUB_PROCESSOR PROCTHROTTLEMAX 99` – rückgängig mit `100`.
 - Nach Änderungen: Tray-Menü → „Einstellungen neu laden“.
 
-### 5. Lüfterkurven in FanControl
+### 5. Gehäuse-Layout erfassen
 
-Pro Profil eine FanControl-Konfiguration, gespeichert unter dem Namen aus `FanConfig=` (Standard `Leise.json`,
-`Ausgewogen.json`, `Leistung.json`, `Turbo.json`) im Ordner `<FanControl>\Configurations`.
+PowerTray und die Werkzeuge in `tools\` arbeiten mit jedem Layout. Ziel ist der Abschnitt `[Gehaeuse]` in `PowerTray.ini`:
 
-Empfohlener Weg (sicher):
-1. Der Nutzer führt in FanControl für alle Lüfter die **Auto-Kalibrierung** aus und benennt die Lüfter (CPU, Front, Oben …).
-2. Er legt Graph-Kurven an. Schlage Punkte vor (siehe `docs/beispiel-setup-watt.md` als Vorlage, auf seine
-   Watt-Werte aus Schritt 3 skalieren).
-3. **Sicherheit:** Jede Watt-Kurve mit einer Temperatur-Notfallkurve in eine Mix-Kurve (Funktion *Max*) packen
-   (z. B. CPU > 85 °C → 100 %, GPU-Hotspot > 95 °C → 100 %). Watt sagen nicht, ob die Kühlung reicht.
-4. Speichern über *Menü → Konfiguration speichern unter* mit dem exakten Namen, dann Kurvenpunkte anpassen und
-   für das nächste Profil erneut speichern.
+```ini
+[Gehaeuse]
+; LuefterN=Position|FanControl-NickName|Anzahl am Anschluss|rein/raus|Radiator
+; Positionen: CPU, GPU, Vorne, Oben, Hinten, Unten, Seite  (englisch geht auch: Front, Top, Rear, Bottom, Side)
+Luefter1=CPU|Fan #2 CPU|1
+Luefter2=Vorne|Fan #6|3|rein
+Luefter3=Hinten|Fan #3|1|raus
+Luefter4=GPU|Control 1 - AMD Radeon RX 7900 XTX|1
+```
 
-Direktes Bearbeiten der JSON-Dateien ist möglich, aber nur mit beendetem FanControl und nach einer Sicherungskopie.
-Aufbau: `FanControl.FanCurves[]` mit `Name`, `SelectedTempSource.Identifier`
-(Plugin-Sensoren: `Watt-Sensoren (CPU/GPU)/WattSensors/cpu/package`, `.../gpu/board`, `.../total`)
-und `Points` als `"Watt,Prozent"`-Strings. `FanControl.Controls[]` verweist per `SelectedFanCurve` auf eine Kurve.
-Kopiere am besten eine vom Nutzer gespeicherte Datei und ändere nur `Points` – Lüfter-IDs und Kalibrierung niemals erfinden.
+Weitere typische Layouts:
 
-### 6. Automatik und Erkenntnisse
+| Aufbau | Einträge |
+|---|---|
+| Klassisch: 3 vorne rein, 1 hinten raus | `Vorne|…|3|rein`, `Hinten|…|1|raus` |
+| AIO oben: Radiator saugt aus dem Gehäuse | `Oben|…|3|raus|Radiator`, `Vorne|…|3|rein`, `Hinten|…|1|raus` (kein `CPU`-Eintrag, die Pumpe nicht eintragen) |
+| AIO vorne als Zuluft | `Vorne|…|2|rein|Radiator`, `Oben|…|2|raus`, `Hinten|…|1|raus` |
+| Boden + Seite rein, oben + hinten raus | `Unten|…|3|rein`, `Seite|…|3|rein`, `Oben|…|3|raus`, `Hinten|…|1|raus` |
+| Mehrere Gruppen an einer Position | einfach mehrere `LuefterN` mit derselben Position (z. B. zwei Anschlüsse vorne) |
+
+So kommst du dahin:
+1. In FanControl **Auto-Kalibrierung** für alle Lüfter ausführen lassen (macht der Nutzer in der Oberfläche).
+2. `tools\Detect-Fans.ps1` ausführen: zeigt, welche Anschlüsse belegt sind (RPM bei 30 % und 100 %).
+3. Für jeden belegten Anschluss `tools\Detect-Fans.ps1 -Only "<NickName>"` ausführen und den Nutzer fragen,
+   welcher Lüfter gerade laut wurde, wo er sitzt, ob er rein- oder rausbläst und wie viele an diesem Anschluss hängen.
+   Bei Unsicherheit über die Richtung: Taschentuch/Papier davorhalten lassen.
+4. Den Anschlüssen in FanControl sprechende NickNames geben lassen (optional) und `[Gehaeuse]` schreiben.
+
+### 6. Lüfterprofile erzeugen
+
+`[Sensoren]` in `PowerTray.ini` mit FanControl-Sensor-IDs füllen (IDs stehen in `%ProgramData%\PowerTray\live.json`;
+für FanControl das `/0/` nach dem Chipnamen weglassen, z. B. `/lpc/nct6797d/temperature/2`):
+
+```ini
+[Sensoren]
+CpuTemp=/intelcpu/0/temperature/10                     ; AMD: meist /amdcpu/0/temperature/2 (Tctl/Tdie)
+GpuHotspot=ADLX/AMD Radeon RX 7900 XTX/768/temp/Hotspot  ; aus einer in FanControl gespeicherten Kurve ablesen
+Gehaeuseluft=/lpc/nct6797d/temperature/2               ; Board-Sensor, der unter CPU-Last kaum steigt (~30-35 °C)
+```
+
+Dann `tools\Make-FanProfiles.ps1 -WhatIf` (zeigt, welche Gruppe auf welche Quellen reagiert) und ohne `-WhatIf` schreiben.
+Das Skript sichert vorher alle Konfigurationen, skaliert die Watt-Achsen auf `CpuMaxWatt`/`GpuMaxWatt` aus der Plugin-ini
+und erzeugt pro Lüftergruppe eine Mix-Kurve (Maximum) passend zur Rolle:
+
+| Rolle | reagiert auf |
+|---|---|
+| CPU-Kühler, AIO-Radiator | CPU-Watt, CPU-Notfall |
+| Zuluft unten | GPU-Watt, Gehäuseluft, GPU-Notfall |
+| Zuluft vorne/seite/oben | CPU-Watt, GPU-Watt, Gehäuseluft, Notfälle |
+| Abluft hinten | CPU-Watt, Gehäuseluft, CPU-Notfall |
+| Abluft oben/sonst | CPU-Watt, Gesamt-Watt, Gehäuseluft, Notfälle |
+
+Abluft liegt immer `-Pressure` (6) Prozentpunkte unter Zuluft → Überdruck gegen Staub.
+Fehlt ein Sensor in `[Sensoren]`, wird die zugehörige Quelle weggelassen. Lüfter-IDs und Kalibrierung niemals erfinden;
+sie kommen aus `userConfig.json`.
+
+### 6b. Messen statt raten (Optimier-Session)
+
+Vor jedem Test den Nutzer fragen (laut, CPU-Last). Ab 90 °C bricht jedes Werkzeug den Schritt ab und stellt das Profil wieder her.
+
+- `tools\Measure-Cooling.ps1`: feste Lüfterstufen (CPU 30/60/100 %, Gehäuse 20/70 %) unter CPU-Last (halbe Threadzahl,
+  ~Spielelast) → `%ProgramData%\PowerTray\messung.json`, im Dashboard als Balken. Ca. 22 min.
+- `tools\Test-Profile.ps1 -Profile Ausgewogen.json`: prüft ein erzeugtes Profil unter derselben Last (4 min).
+- Auswertung: Bringt mehr Drehzahl kaum weniger °C, die Kurve dort flacher machen (leiser). Wird es zu heiß, die Punkte
+  in `Make-FanProfiles.ps1` für die betroffene Rolle anheben und neu erzeugen. Erkenntnis aus dem Referenz-PC: bei CPU-Last
+  ist Gehäuse-Luftstrom mindestens so wichtig wie der CPU-Lüfter.
+
+### 6c. Automatik
 
 - `[Automatik]` in `PowerTray.ini`: `ProfilSpiel`, `ProfilIdle`, `ProfilDesktop` auf die passenden `[ProfilN]`-Nummern setzen.
   Frag nach Spielen außerhalb von Steam (Epic, Battle.net, Riot …) und trag deren Exe-Namen in `SpielExe=` ein.
   Steam-Apps, die dauerhaft laufen und kein Spiel sind, in `SteamIgnorieren=` (AppID aus `HKCU\Software\Valve\Steam\RunningAppID`).
-- `[Gehaeuse]` in `PowerTray.ini` beschreibt, wo welcher Lüfter sitzt (für die PC-Ansicht und die Druckanzeige im Dashboard).
-  Schlüssel: `CPU`, `Unten`, `Seite`, `Vorne` (= Zuluft), `Hinten`, `Oben` (= Abluft), `GPU`. Wert: FanControl-NickName,
-  optional `|Anzahl` bei Splitter-Kabeln. Beispiel: `Unten=Fan #4 UNTEN|3`. Frag den Nutzer, wo seine Lüfter sitzen
-  und wie viele an einem Anschluss hängen. Ohne Abschnitt rät PowerTray anhand der NickNames.
-
-### 6b. Messen statt raten (Optimier-Session)
-
-Das Plugin schreibt alle Board-/CPU-Sensoren (Temperaturen, Lüfter-RPM und -%) nach `%ProgramData%\PowerTray\live.json`.
-`tools\Measure-Cooling.ps1` setzt die Lüfter über temporäre FanControl-Konfigurationen auf feste Stufen, erzeugt CPU-Last
-und speichert Mittelwerte in `%ProgramData%\PowerTray\messung.json`; das Dashboard zeigt sie als Balken.
-Vor dem Start den Nutzer fragen (laut, ~20 min). Ab 90 °C wird ein Schritt übersprungen, am Ende immer das Profil wiederhergestellt.
-Leite Kurven aus den Messwerten ab: Bringt mehr Drehzahl kaum weniger °C, die Kurve dort flach halten (leiser).
-Welcher Board-Temperatursensor die Gehäuseluft misst, erkennt man daran, dass er bei CPU-Last nur langsam und wenig steigt.
-
 ### 7. Abschluss prüfen
 
 - Mausrad über dem Tray-Icon: Energieplan (`powercfg /getactivescheme`) und FanControl-Konfiguration wechseln.

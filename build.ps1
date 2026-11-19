@@ -38,6 +38,6 @@ $stage = Join-Path $dist 'PowerTray'
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$stage\bin" | Out-Null
 Copy-Item "$bin\*" "$stage\bin\"
-Copy-Item "$root\install.ps1", "$root\install.cmd", "$root\uninstall.ps1", "$root\README.md", "$root\LICENSE" $stage
+Copy-Item "$root\install.ps1", "$root\install.cmd", "$root\uninstall.ps1", "$root\README.md", "$root\AGENTS.md", "$root\LICENSE" $stage; Copy-Item "$root\tools" "$stage\tools" -Recurse
 Compress-Archive -Path "$stage\*" -DestinationPath "$dist\PowerTray-Setup.zip" -Force
 Write-Host "ZIP: dist\PowerTray-Setup.zip"

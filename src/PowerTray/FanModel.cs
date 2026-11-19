@@ -182,7 +182,10 @@ namespace PowerTray
         public string Label, NickName;
         public int Count = 1;
         public string ControlId;        // FanControl-ID der Steuerung
-        public bool Intake { get { return Pos == FanPos.Unten || Pos == FanPos.Seite || Pos == FanPos.Vorne; } }
+        public string Id;                // eindeutig je Gruppe (mehrere Gruppen pro Position möglich)
+        public bool? Dir;               // true = rein, false = raus, null = Standard der Position
+        public bool Radiator;           // AIO-Radiator: kühlt die CPU direkt
+        public bool Intake { get { return Dir ?? (Pos == FanPos.Unten || Pos == FanPos.Seite || Pos == FanPos.Vorne); } }
         public bool Case { get { return Pos != FanPos.Cpu && Pos != FanPos.Gpu; } }
         public string FanId { get { return ControlId == null ? null : ControlId.Replace("/control/", "/fan/"); } }
 
@@ -200,6 +203,22 @@ namespace PowerTray
             return (FanPos)Array.IndexOf(Keys, k);
         }
 
+        /// <summary>Position auch englisch/kleingeschrieben erkennen.</summary>
+        static FanPos? ParsePos(string s)
+        {
+            switch (s.Trim().ToLowerInvariant())
+            {
+                case "cpu": return FanPos.Cpu;
+                case "gpu": return FanPos.Gpu;
+                case "unten": case "bottom": return FanPos.Unten;
+                case "seite": case "side": return FanPos.Seite;
+                case "vorne": case "front": return FanPos.Vorne;
+                case "hinten": case "rear": case "back": return FanPos.Hinten;
+                case "oben": case "top": return FanPos.Oben;
+                default: return null;
+            }
+        }
+
         public static string Label(FanPos p)
         {
             switch (p)
@@ -214,11 +233,33 @@ namespace PowerTray
             }
         }
 
-        /// <summary>Aus [Gehaeuse] (Key=NickName|Anzahl) oder per Namensraten aus der FanControl-Konfig.</summary>
+        /// <summary>
+        /// Aus [Gehaeuse] oder per Namensraten aus der FanControl-Konfig. Formate:
+        ///   LuefterN=Position|NickName|Anzahl|rein/raus|Radiator   (beliebig viele Gruppen, auch mehrere pro Position)
+        ///   Position=NickName|Anzahl                               (Kurzform, eine Gruppe pro Position)
+        /// </summary>
         public static List<FanGroup> Build(Dictionary<string, string> ini, FanConfig cfg)
         {
             var list = new List<FanGroup>();
-            if (ini != null && ini.Count > 0)
+            if (ini != null)
+                foreach (var kv in ini.Where(x => x.Key.StartsWith("Luefter", StringComparison.OrdinalIgnoreCase) || x.Key.StartsWith("Fan", StringComparison.OrdinalIgnoreCase))
+                                      .OrderBy(x => { int n; int.TryParse(Regex.Replace(x.Key, "\\D", ""), out n); return n; }))
+                {
+                    string[] p = kv.Value.Split('|').Select(x => x.Trim()).ToArray();
+                    FanPos? pos = p.Length > 1 ? ParsePos(p[0]) : null;
+                    if (!pos.HasValue) continue;
+                    int n = 1;
+                    if (p.Length > 2) int.TryParse(p[2], out n);
+                    string dir = p.Length > 3 ? p[3].ToLowerInvariant() : "";
+                    bool rad = p.Skip(3).Any(x => x.Equals("Radiator", StringComparison.OrdinalIgnoreCase) || x.Equals("AIO", StringComparison.OrdinalIgnoreCase));
+                    list.Add(new FanGroup
+                    {
+                        Pos = pos.Value, NickName = p[1], Count = Math.Max(1, n), Radiator = rad,
+                        Dir = dir == "rein" || dir == "in" ? true : dir == "raus" || dir == "out" ? (bool?)false : null,
+                        Label = Label(pos.Value) + (rad ? " AIO" : "")
+                    });
+                }
+            if (list.Count == 0 && ini != null && ini.Count > 0)
             {
                 foreach (string k in Keys)
                 {
@@ -230,7 +271,7 @@ namespace PowerTray
                     list.Add(new FanGroup { Pos = Parse(k), NickName = parts[0].Trim(), Count = Math.Max(1, n), Label = Label(Parse(k)) });
                 }
             }
-            else
+            if (list.Count == 0)
             {
                 foreach (var c in cfg.Controls)
                 {
@@ -242,6 +283,13 @@ namespace PowerTray
                               : n.Contains("TOP") || n.Contains("OBEN") ? FanPos.Oben : (FanPos?)null;
                     if (p.HasValue && !list.Any(g => g.Pos == p.Value)) list.Add(new FanGroup { Pos = p.Value, NickName = c.NickName, Label = Label(p.Value) });
                 }
+            }
+            for (int i = 0; i < list.Count; i++) list[i].Id = "g" + i + ":" + list[i].NickName;
+            // Gleichnamige Gruppen an einer Position unterscheidbar machen ("Vorne", "Vorne 2")
+            foreach (var same in list.GroupBy(x => x.Label).Where(x => x.Count() > 1))
+            {
+                int k = 1;
+                foreach (var g in same) { if (k > 1) g.Label += " " + k; k++; }
             }
             foreach (var g in list)
             {

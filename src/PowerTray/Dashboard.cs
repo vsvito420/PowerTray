@@ -240,22 +240,45 @@ namespace PowerTray
             HeatBlock(g, cpuR, "CPU", app.CpuTemp, last != null ? last.Cpu : null);
             HeatBlock(g, gpuR, "GPU", app.GpuHotspot ?? app.GpuTemp, last != null ? last.Gpu : null);
 
-            // Positionen der Lüftergruppen
-            foreach (var grp in groups)
+            // Lüfter: alle Gruppen einer Position teilen sich deren Kante, gleichmäßig verteilt.
+            // Seitenansicht: hinten = links, vorne = rechts; "Seite" = Seitenwand (vorne-innen dargestellt).
+            foreach (var edge in groups.Where(x => x.Case).GroupBy(x => x.Pos))
             {
-                var pts = new List<PointF>();
-                PointF dir;   // Luftrichtung
-                switch (grp.Pos)
+                FanPos pos = edge.Key;
+                PointF a, b, outward;
+                switch (pos)
                 {
-                    case FanPos.Unten: for (int i = 0; i < grp.Count; i++) pts.Add(new PointF(cas.X + cas.Width * (0.2f + 0.5f * (grp.Count == 1 ? 0.5f : i / (float)(grp.Count - 1))), cas.Bottom)); dir = new PointF(0, -1); break;
-                    case FanPos.Oben: for (int i = 0; i < grp.Count; i++) pts.Add(new PointF(cas.X + cas.Width * (0.25f + 0.5f * (grp.Count == 1 ? 0.5f : i / (float)(grp.Count - 1))), cas.Y)); dir = new PointF(0, -1); break;
-                    case FanPos.Hinten: for (int i = 0; i < grp.Count; i++) pts.Add(new PointF(cas.X, cas.Y + cas.Height * (0.28f + 0.15f * i))); dir = new PointF(-1, 0); break;
-                    case FanPos.Vorne: for (int i = 0; i < grp.Count; i++) pts.Add(new PointF(cas.Right, cas.Y + cas.Height * (0.25f + 0.5f * (grp.Count == 1 ? 0.5f : i / (float)(grp.Count - 1))))); dir = new PointF(-1, 0); break;
-                    case FanPos.Seite: for (int i = 0; i < grp.Count; i++) pts.Add(new PointF(cas.X + cas.Width * 0.84f, cas.Y + cas.Height * (0.2f + 0.55f * (grp.Count == 1 ? 0.5f : i / (float)(grp.Count - 1))))); dir = new PointF(-1, 0); break;
-                    case FanPos.Cpu: pts.Add(new PointF(cpuR.Right + fr * 0.9f, cpuR.Y + cpuR.Height / 2)); dir = new PointF(-1, 0); break;
-                    default: pts.Add(new PointF(gpuR.X + gpuR.Width * 0.5f, gpuR.Bottom + fr * 0.9f)); dir = new PointF(0, -1); break;
+                    case FanPos.Oben: a = new PointF(cas.X + cas.Width * 0.12f, cas.Y); b = new PointF(cas.X + cas.Width * 0.88f, cas.Y); outward = new PointF(0, -1); break;
+                    case FanPos.Unten: a = new PointF(cas.X + cas.Width * 0.12f, cas.Bottom); b = new PointF(cas.X + cas.Width * 0.88f, cas.Bottom); outward = new PointF(0, 1); break;
+                    case FanPos.Hinten: a = new PointF(cas.X, cas.Y + cas.Height * 0.12f); b = new PointF(cas.X, cas.Y + cas.Height * (edge.Sum(x => x.Count) > 2 ? 0.88f : 0.5f)); outward = new PointF(-1, 0); break;
+                    case FanPos.Vorne: a = new PointF(cas.Right, cas.Y + cas.Height * 0.12f); b = new PointF(cas.Right, cas.Y + cas.Height * 0.88f); outward = new PointF(1, 0); break;
+                    default: a = new PointF(cas.X + cas.Width * (groups.Any(x => x.Pos == FanPos.Vorne) ? 0.78f : 0.86f), cas.Y + cas.Height * 0.12f); b = new PointF(a.X, cas.Y + cas.Height * 0.88f); outward = new PointF(1, 0); break;
                 }
-                foreach (var pt in pts) Fan(g, pt, grp.Pos == FanPos.Cpu || grp.Pos == FanPos.Gpu ? fr * 0.8f : fr, grp, dir);
+                int slots = edge.Sum(x => x.Count), k = 0;
+                float segLen = (float)Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+                float rad = Math.Min(fr, segLen / slots / 2.3f);
+                foreach (var grp in edge)
+                {
+                    var pts = new List<PointF>();
+                    for (int i = 0; i < grp.Count; i++, k++)
+                    {
+                        float t = (k + 0.5f) / slots;
+                        pts.Add(new PointF(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t));
+                    }
+                    if (grp.Radiator && pts.Count > 0)   // Radiator-Körper hinter den Lüftern
+                    {
+                        var first = pts[0]; var lastP = pts[pts.Count - 1];
+                        var body = RectangleF.FromLTRB(Math.Min(first.X, lastP.X) - rad * 1.1f, Math.Min(first.Y, lastP.Y) - rad * 1.1f, Math.Max(first.X, lastP.X) + rad * 1.1f, Math.Max(first.Y, lastP.Y) + rad * 1.1f);
+                        using (var path = Round(Rectangle.Round(body), 4)) using (var br = new SolidBrush(Mix(Panel, Cool, 0.18f))) using (var pen = new Pen(Cool, 1f)) { g.FillPath(br, path); g.DrawPath(pen, path); }
+                    }
+                    PointF dir = grp.Intake ? new PointF(-outward.X, -outward.Y) : outward;
+                    foreach (var pt in pts) Fan(g, pt, rad, grp, dir, true);
+                }
+            }
+            foreach (var grp in groups.Where(x => !x.Case))
+            {
+                var pt = grp.Pos == FanPos.Cpu ? new PointF(cpuR.Right + fr * 0.9f, cpuR.Y + cpuR.Height / 2) : new PointF(gpuR.X + gpuR.Width * 0.5f, gpuR.Bottom + fr * 0.9f);
+                Fan(g, pt, fr * 0.8f, grp, new PointF(0, -1), false);
             }
 
             // Legende: Gruppe · Richtung · Drehzahl (im Kreis steht nur die %-Zahl)
@@ -299,7 +322,7 @@ namespace PowerTray
             TextRenderer.DrawText(g, w, fNumS, Rectangle.Round(new RectangleF(r.X, r.Y + r.Height / 2 + 1, r.Width, 16)), Muted, TextFormatFlags.HorizontalCenter);
         }
 
-        void Fan(Graphics g, PointF p, float rad, FanGroup grp, PointF dir)
+        void Fan(Graphics g, PointF p, float rad, FanGroup grp, PointF dir, bool arrow)
         {
             float pct = grp.Percent ?? 0;
             Color col = grp.Percent.HasValue ? Mix(Air, Warm, (pct - 40) / 60f) : Dim;
@@ -309,10 +332,9 @@ namespace PowerTray
             if (grp.Percent.HasValue) using (var pen = new Pen(col, 3f)) g.DrawArc(pen, rect, -90, 360f * pct / 100f);
             TextRenderer.DrawText(g, N(grp.Percent), fTitle, Rectangle.Round(rect), Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             // Luftpfeil (Länge ~ Drehzahl)
-            if (grp.Pos != FanPos.Cpu && grp.Pos != FanPos.Gpu && grp.Percent.HasValue)
+            if (arrow && grp.Percent.HasValue)
             {
                 // Pfeil beginnt am Kreisrand, damit die Zahl lesbar bleibt
-                if (!grp.Intake) dir = grp.Pos == FanPos.Hinten ? new PointF(-1, 0) : new PointF(0, -1);
                 float len = rad * (0.4f + 0.9f * pct / 100f);
                 float sx = p.X + dir.X * (rad + 3), sy = p.Y + dir.Y * (rad + 3);
                 using (var pen = new Pen(Color.FromArgb(200, col), 2f) { EndCap = LineCap.ArrowAnchor })
@@ -413,11 +435,11 @@ namespace PowerTray
             float? best = grp.Demands.Where(d => d.Value.HasValue).Select(d => d.Value).DefaultIfEmpty(null).Max();
             for (int i = 0; i < grp.Demands.Count; i++)
             {
-                string key = grp.Pos + "/" + grp.Demands[i].Key.Name;
+                string key = grp.Id + "/" + grp.Demands[i].Key.Name;
                 Color col = Series[i % Series.Length];
                 Line_(g, s, x => { float? v; return x.Demand.TryGetValue(key, out v) ? v : null; }, X, Y, Color.FromArgb(170, col), 1.4f);
             }
-            Line_(g, s, x => { float? v; return x.Fan.TryGetValue(grp.Pos, out v) ? v : null; }, X, Y, Ink, 2.6f);
+            Line_(g, s, x => { float? v; return x.Fan.TryGetValue(grp.Id, out v) ? v : null; }, X, Y, Ink, 2.6f);
 
             // Legende mit aktuellem Wert; die bestimmende Kurve (Maximum) fett + ◀
             int ly = plot.Bottom + 6;

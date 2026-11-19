@@ -68,7 +68,7 @@ if ($Component -in 'All', 'App') {
     New-Item $u -Force | Out-Null
     Copy-Item "$here\uninstall.ps1" "$appDir\uninstall.ps1" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty $u DisplayName 'PowerTray'
-    Set-ItemProperty $u DisplayVersion '1.2.0'
+    Set-ItemProperty $u DisplayVersion '1.4.0'
     Set-ItemProperty $u Publisher 'PowerTray'
     Set-ItemProperty $u DisplayIcon "$appDir\PowerTray.exe"
     Set-ItemProperty $u InstallLocation $appDir
